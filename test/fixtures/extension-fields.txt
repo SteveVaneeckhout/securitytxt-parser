@@ -1,0 +1,4 @@
+Contact: mailto:security@example.com
+Expires: 2099-12-31T23:59:59Z
+X-Team: Security Team
+X-Bug-Bounty: https://example.com/bug-bounty

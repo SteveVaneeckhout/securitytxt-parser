@@ -1,0 +1,7 @@
+Contact: mailto:security@example.com
+Expires: 2099-12-31T23:59:59Z
+Acknowledgments: http://example.com/hall-of-fame
+Canonical: http://example.com/.well-known/security.txt
+Encryption: http://example.com/pgp-key.txt
+Hiring: http://example.com/jobs
+Policy: http://example.com/policy

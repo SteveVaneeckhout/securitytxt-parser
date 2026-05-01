@@ -1,0 +1,9 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA256
+
+Contact: mailto:security@example.com
+Expires: 2099-12-31T23:59:59Z
+-----BEGIN PGP SIGNATURE-----
+
+iQEzBAABCAAdFiEE...fake-signature-data...
+-----END PGP SIGNATURE-----
