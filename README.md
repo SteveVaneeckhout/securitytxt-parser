@@ -241,12 +241,12 @@ if (result.pgp.signed) {
 
 - **PGP signatures are not cryptographically verified** by this library — see the section above for how to add that with openpgp.js.
 - **`isValid` reflects RFC conformance only.** A file can be `isValid: true` while still having recommendations.
+- Code generated using Claude.ai
 
 ## Requirements
 
 - Node.js ≥ 24.15.0
 - ESM (`"type": "module"` or `.mjs` files)
-- Code generated using Claude.ai
 
 ## License
 
