@@ -43,12 +43,14 @@ console.log(result.recommendations); // Diagnostic[] — best-practice advice
 ### Fetch and parse from a URL
 
 ```typescript
-import { fetchAndParse } from "sectxt";
+import { fetchSecurityTxt } from "sectxt";
 
-const result = await fetchAndParse("https://example.com/.well-known/security.txt");
+// Pass the site origin; "/.well-known/security.txt" is appended for you.
+const result = await fetchSecurityTxt("https://example.com");
 
-console.log(result.httpStatus); // 200
-console.log(result.contentType); // 'text/plain; charset=utf-8'
+console.log(result.meta.httpStatus); // 200
+console.log(result.meta.contentType); // 'text/plain; charset=utf-8'
+console.log(result.meta.redirects); // number of redirects followed
 console.log(result.isValid); // true/false
 ```
 
@@ -69,31 +71,45 @@ function parse(input: string, options?: ParseOptions): ParseResult;
 | `now`              | `Date`    | `new Date()` | Reference time for Expires checks. Useful for deterministic tests. |
 | `skipPgpStripping` | `boolean` | `false`      | Treat the input as plain text without PGP armor detection.         |
 
-### `fetchAndParse(url, options?)`
+### `fetchSecurityTxt(siteUrl, options?)`
 
-Fetches the URL and parses the response body. Requires an `https://` URL.
+Fetches `/.well-known/security.txt` from the given site origin and parses the response body. Requires an `https://` URL.
 
 ```typescript
-async function fetchAndParse(url: string, options?: FetchOptions): Promise<FetchResult>;
+async function fetchSecurityTxt(siteUrl: string, options?: FetchOptions): Promise<FetchResult>;
 ```
 
-Throws `TypeError` for non-HTTPS URLs. Throws `FetchError` on timeout.
+Throws `TypeError` for non-HTTPS URLs. Throws `FetchError` for non-2xx responses, network errors, timeouts, and redirect-cap exceeded.
 
 **`FetchOptions`** — extends `ParseOptions` with:
 
-| Property          | Type      | Default | Description                                     |
-| ----------------- | --------- | ------- | ----------------------------------------------- |
-| `timeoutMs`       | `number`  | `10000` | Abort the request after this many milliseconds. |
-| `followRedirects` | `boolean` | `true`  | Set to `false` to use `redirect: 'manual'`.     |
+| Property       | Type     | Default        | Description                               |
+| -------------- | -------- | -------------- | ----------------------------------------- |
+| `timeoutMs`    | `number` | `10000`        | Abort the request after this many ms      |
+| `userAgent`    | `string` | `'sectxt/1.0'` | `User-Agent` header sent with the request |
+| `maxRedirects` | `number` | `5`            | Maximum redirects to follow (0 disables)  |
+| `maxSizeBytes` | `number` | `64 * 1024`    | Response body cap in bytes                |
 
 ### `FetchError`
-
-Thrown when a request times out.
 
 ```typescript
 class FetchError extends Error {
   readonly url: string;
-  readonly status?: number;
+  readonly status: number | null; // HTTP status, or null for network/timeout
+}
+```
+
+### `FetchMeta`
+
+Returned on `FetchResult.meta`:
+
+```typescript
+interface FetchMeta {
+  url: string;
+  finalUrl: string;
+  httpStatus: number | null;
+  contentType: string | null;
+  redirects: number;
 }
 ```
 
@@ -120,7 +136,7 @@ class FetchError extends Error {
 | `lineCount`          | `number`                          | Number of lines in the parsed body   |
 | `byteCount`          | `number`                          | UTF-8 byte size of the input         |
 
-`FetchResult` extends `ParseResult` with `url`, `httpStatus`, `contentType`, and `finalUrl`.
+`FetchResult` extends `ParseResult` with a `meta: FetchMeta` field.
 
 ### `Diagnostic`
 

@@ -93,11 +93,15 @@ export interface ParseResult {
   lineCount: number;
   byteCount: number;
 }
-export interface FetchResult extends ParseResult {
+export interface FetchMeta {
   url: string;
-  httpStatus: number;
-  contentType: string | null;
   finalUrl: string;
+  httpStatus: number | null;
+  contentType: string | null;
+  redirects: number;
+}
+export interface FetchResult extends ParseResult {
+  meta: FetchMeta;
 }
 export interface ParseOptions {
   skipPgpStripping?: boolean;
@@ -105,5 +109,7 @@ export interface ParseOptions {
 }
 export interface FetchOptions extends ParseOptions {
   timeoutMs?: number;
-  followRedirects?: boolean;
+  userAgent?: string;
+  maxRedirects?: number;
+  maxSizeBytes?: number;
 }

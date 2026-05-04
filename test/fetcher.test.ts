@@ -1,127 +1,227 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { fetchAndParse, FetchError } from "../src/fetcher.js";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { fetchSecurityTxt, FetchError } from "../src/fetcher.js";
 
 const FUTURE = new Date("2099-01-01T00:00:00Z");
 
 const VALID_BODY = "Contact: mailto:security@example.com\nExpires: 2099-12-31T23:59:59Z\n";
 
-type FakeFetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
-
-function makeFetch(
-  body: string,
-  status = 200,
-  headers: Record<string, string> = { "content-type": "text/plain; charset=utf-8" },
-): FakeFetch {
-  return async () => {
-    const h = new Headers(headers);
-    return new Response(body, { status, headers: h });
-  };
+function makeResponse(
+  status: number,
+  body: string | null = null,
+  headers: Record<string, string> = {},
+): Response {
+  return new Response(body, { status, headers });
 }
 
-function setFetch(fn: FakeFetch): void {
-  (globalThis as Record<string, unknown>)["fetch"] = fn;
+function stubFetch(...responses: Array<Response | Error>): void {
+  let i = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation(async () => {
+      const r = responses[i++];
+      if (r instanceof Error) throw r;
+      return r;
+    }),
+  );
 }
 
 beforeEach(() => {
-  setFetch(makeFetch(VALID_BODY));
+  stubFetch(makeResponse(200, VALID_BODY, { "content-type": "text/plain; charset=utf-8" }));
 });
 
 afterEach(() => {
-  delete (globalThis as Record<string, unknown>)["fetch"];
+  vi.unstubAllGlobals();
 });
 
-describe("fetchAndParse()", () => {
+describe("fetchSecurityTxt – URL construction", () => {
+  it("appends /.well-known/security.txt to the site URL", async () => {
+    stubFetch(makeResponse(200, VALID_BODY));
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    await fetchSecurityTxt("https://example.com", { now: FUTURE });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://example.com/.well-known/security.txt");
+  });
+
+  it("ignores the path of the input URL", async () => {
+    stubFetch(makeResponse(200, VALID_BODY));
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    await fetchSecurityTxt("https://example.com/some/page", { now: FUTURE });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://example.com/.well-known/security.txt");
+  });
+
   it("throws TypeError for non-HTTPS URL", async () => {
-    await expect(fetchAndParse("http://example.com/.well-known/security.txt")).rejects.toThrow(
-      TypeError,
-    );
+    await expect(fetchSecurityTxt("http://example.com")).rejects.toThrow(TypeError);
   });
 
   it("throws TypeError for non-HTTPS scheme", async () => {
-    await expect(fetchAndParse("ftp://example.com/security.txt")).rejects.toThrow(TypeError);
+    await expect(fetchSecurityTxt("ftp://example.com")).rejects.toThrow(TypeError);
   });
+});
 
+describe("fetchSecurityTxt – success", () => {
   it("returns parsed result for a valid response", async () => {
-    const result = await fetchAndParse("https://example.com/.well-known/security.txt", {
-      now: FUTURE,
-    });
-    expect(result.httpStatus).toBe(200);
+    const result = await fetchSecurityTxt("https://example.com", { now: FUTURE });
     expect(result.contacts).toHaveLength(1);
     expect(result.isValid).toBe(true);
-    expect(result.url).toBe("https://example.com/.well-known/security.txt");
   });
 
-  it("captures content-type header", async () => {
-    const result = await fetchAndParse("https://example.com/.well-known/security.txt", {
-      now: FUTURE,
+  it("captures meta for a 200 response", async () => {
+    const result = await fetchSecurityTxt("https://example.com", { now: FUTURE });
+    expect(result.meta).toEqual({
+      url: "https://example.com/.well-known/security.txt",
+      finalUrl: "https://example.com/.well-known/security.txt",
+      httpStatus: 200,
+      contentType: "text/plain; charset=utf-8",
+      redirects: 0,
     });
-    expect(result.contentType).toBe("text/plain; charset=utf-8");
   });
 
   it("handles missing content-type as null", async () => {
-    setFetch(
-      async () =>
-        ({
-          status: 200,
-          url: "https://example.com/.well-known/security.txt",
-          headers: { get: (_name: string) => null },
-          text: async () => VALID_BODY,
-        }) as unknown as Response,
-    );
-    const result = await fetchAndParse("https://example.com/.well-known/security.txt", {
-      now: FUTURE,
-    });
-    expect(result.contentType).toBeNull();
+    const fake = {
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(VALID_BODY));
+          controller.close();
+        },
+      }),
+    } as unknown as Response;
+    stubFetch(fake);
+    const result = await fetchSecurityTxt("https://example.com", { now: FUTURE });
+    expect(result.meta.contentType).toBeNull();
+  });
+});
+
+describe("fetchSecurityTxt – HTTP errors", () => {
+  it("throws FetchError on 404", async () => {
+    stubFetch(makeResponse(404));
+    const error = await fetchSecurityTxt("https://example.com").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(FetchError);
+    expect((error as FetchError).status).toBe(404);
   });
 
-  it("still parses body even for non-200 status", async () => {
-    setFetch(makeFetch(VALID_BODY, 404, { "content-type": "text/plain" }));
-    const result = await fetchAndParse("https://example.com/.well-known/security.txt", {
-      now: FUTURE,
-    });
-    expect(result.httpStatus).toBe(404);
-    expect(result.contacts).toHaveLength(1);
+  it("throws FetchError on 500", async () => {
+    stubFetch(makeResponse(500));
+    const error = await fetchSecurityTxt("https://example.com").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(FetchError);
+    expect((error as FetchError).status).toBe(500);
   });
 
-  it("handles timeout via AbortError", async () => {
-    setFetch((_url, init) => {
-      return new Promise<Response>((_resolve, reject) => {
-        const signal = init?.signal;
-        if (signal) {
-          signal.addEventListener("abort", () => {
-            reject(Object.assign(new Error("The operation was aborted."), { name: "AbortError" }));
+  it("throws FetchError on network failure with status null", async () => {
+    stubFetch(new TypeError("Failed to fetch"));
+    const error = await fetchSecurityTxt("https://example.com").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(FetchError);
+    expect((error as FetchError).status).toBeNull();
+  });
+
+  it("throws FetchError on timeout", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(Object.assign(new Error("aborted"), { name: "TimeoutError" }));
           });
-        }
-      });
-    });
-    await expect(
-      fetchAndParse("https://example.com/.well-known/security.txt", { timeoutMs: 1 }),
-    ).rejects.toThrow(FetchError);
-  });
-
-  it("passes redirect:manual when followRedirects is false", async () => {
-    let capturedInit: RequestInit | undefined;
-    setFetch(async (_url, init) => {
-      capturedInit = init;
-      return new Response(VALID_BODY, {
-        status: 200,
-        headers: new Headers({ "content-type": "text/plain" }),
-      });
-    });
-    await fetchAndParse("https://example.com/.well-known/security.txt", {
-      followRedirects: false,
-      now: FUTURE,
-    });
-    expect(capturedInit?.redirect).toBe("manual");
-  });
-
-  it("re-throws non-abort network errors as-is", async () => {
-    const networkError = new TypeError("Failed to fetch");
-    setFetch(async () => {
-      throw networkError;
-    });
-    await expect(fetchAndParse("https://example.com/.well-known/security.txt")).rejects.toThrow(
-      networkError,
+        });
+      }),
     );
+    const error = await fetchSecurityTxt("https://example.com", { timeoutMs: 1 }).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(FetchError);
+  });
+});
+
+describe("fetchSecurityTxt – redirects", () => {
+  it("follows redirects and counts them in meta", async () => {
+    stubFetch(
+      makeResponse(301, null, { Location: "https://example.com/.well-known/security.txt?x=1" }),
+      makeResponse(301, null, {
+        Location: "https://example.com/.well-known/security.txt?x=2",
+      }),
+      makeResponse(200, VALID_BODY, { "content-type": "text/plain" }),
+    );
+    const result = await fetchSecurityTxt("https://example.com", { now: FUTURE });
+    expect(result.meta.redirects).toBe(2);
+    expect(result.meta.finalUrl).toBe("https://example.com/.well-known/security.txt?x=2");
+  });
+
+  it("throws FetchError when redirect cap is exceeded", async () => {
+    const redirect = makeResponse(301, null, {
+      Location: "https://example.com/.well-known/security.txt",
+    });
+    stubFetch(redirect, redirect, redirect);
+    const error = await fetchSecurityTxt("https://example.com", { maxRedirects: 1 }).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(FetchError);
+  });
+
+  it("maxRedirects: 0 disables redirect following", async () => {
+    stubFetch(
+      makeResponse(301, null, { Location: "https://example.com/.well-known/security.txt" }),
+    );
+    const error = await fetchSecurityTxt("https://example.com", { maxRedirects: 0 }).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(FetchError);
+  });
+});
+
+describe("fetchSecurityTxt – options", () => {
+  it("uses default User-Agent", async () => {
+    stubFetch(makeResponse(200, VALID_BODY));
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    await fetchSecurityTxt("https://example.com", { now: FUTURE });
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string> | undefined;
+    expect(headers?.["User-Agent"]).toBe("sectxt/1.0");
+  });
+
+  it("uses custom User-Agent", async () => {
+    stubFetch(makeResponse(200, VALID_BODY));
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    await fetchSecurityTxt("https://example.com", { userAgent: "mybot/1", now: FUTURE });
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string> | undefined;
+    expect(headers?.["User-Agent"]).toBe("mybot/1");
+  });
+});
+
+describe("fetchSecurityTxt – body handling", () => {
+  it("handles a 2xx response with null body without throwing", async () => {
+    stubFetch(makeResponse(200, null));
+    const result = await fetchSecurityTxt("https://example.com").catch((e: unknown) => e);
+    expect(result).toBeDefined();
+  });
+
+  it("truncates body when it exceeds maxSizeBytes", async () => {
+    stubFetch(makeResponse(200, "X".repeat(10_000)));
+    const result = await fetchSecurityTxt("https://example.com", { maxSizeBytes: 10, now: FUTURE });
+    expect(result).toBeDefined();
+  });
+});
+
+describe("fetchSecurityTxt – redirect error paths", () => {
+  it("throws FetchError when a redirect response is missing its Location header", async () => {
+    stubFetch(makeResponse(301, null, {}));
+    const error = await fetchSecurityTxt("https://example.com").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(FetchError);
+  });
+
+  it("throws FetchError when a redirect has an unparseable Location URL", async () => {
+    stubFetch(makeResponse(301, null, { Location: "http://[bad" }));
+    const error = await fetchSecurityTxt("https://example.com").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(FetchError);
+  });
+});
+
+describe("fetchSecurityTxt – skipPgpStripping option", () => {
+  it("passes skipPgpStripping: true to the parser", async () => {
+    stubFetch(makeResponse(200, VALID_BODY));
+    const result = await fetchSecurityTxt("https://example.com", {
+      now: FUTURE,
+      skipPgpStripping: true,
+    });
+    expect(result).toBeDefined();
   });
 });

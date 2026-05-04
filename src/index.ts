@@ -1,8 +1,9 @@
 export { parse } from "./parser.js";
-export { fetchAndParse, FetchError } from "./fetcher.js";
+export { fetchSecurityTxt, FetchError } from "./fetcher.js";
 export type {
   ParseResult,
   FetchResult,
+  FetchMeta,
   ParseOptions,
   FetchOptions,
   Diagnostic,

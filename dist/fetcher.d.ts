@@ -1,7 +1,10 @@
-import type { FetchResult, FetchOptions } from "./types.js";
+import type { FetchOptions, FetchResult } from "./types.js";
 export declare class FetchError extends Error {
   readonly url: string;
-  readonly status?: number | undefined;
-  constructor(message: string, url: string, status?: number | undefined);
+  readonly status: number | null;
+  constructor(message: string, url: string, status?: number | null);
 }
-export declare function fetchAndParse(url: string, options?: FetchOptions): Promise<FetchResult>;
+export declare function fetchSecurityTxt(
+  siteUrl: string,
+  options?: FetchOptions,
+): Promise<FetchResult>;

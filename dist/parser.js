@@ -171,7 +171,12 @@ export function parse(input, options = {}) {
         field = buildPreferredLanguagesField(raw);
         break;
       default: {
-        const ext = { type: "extension", name: rawName, value: rawValue, lineNumber };
+        const ext = {
+          type: "extension",
+          name: rawName,
+          value: rawValue,
+          lineNumber,
+        };
         field = ext;
       }
     }

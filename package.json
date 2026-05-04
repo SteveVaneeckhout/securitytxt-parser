@@ -1,6 +1,6 @@
 {
   "name": "sectxt",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Parses and validate security.txt files per RFC 9116",
   "keywords": [
     "parser",
